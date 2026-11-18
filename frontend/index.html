@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent ID Badge — Free Soulbound Badge for Agent ID Holders</title>
+<style>
+  body { background:#0b0b12; color:#eee; font-family: system-ui, -apple-system, sans-serif; margin:0; padding:0; }
+  .wrap { max-width:640px; margin:0 auto; padding:32px 20px 64px; }
+  h1 { color:#f0b90b; font-size:28px; margin:0 0 8px; }
+  .sub { color:#aaa; margin:0 0 24px; }
+  .card { border:1px solid #333; border-radius:12px; padding:20px; margin:16px 0; background:#12121c; }
+  .card h2 { font-size:16px; margin:0 0 10px; color:#f0b90b; }
+  button { background:#f0b90b; color:#111; border:0; border-radius:8px; padding:12px 20px; font-size:16px; font-weight:700; cursor:pointer; margin:4px 8px 4px 0; }
+  button:disabled { background:#444; color:#999; cursor:not-allowed; }
+  .mono { font-family: monospace; word-break:break-all; font-size:13px; }
+  .muted { color:#999; font-size:13px; }
+  .ok { color:#4ade80; } .err { color:#f87171; } .warn { color:#f0b90b; }
+  #status { min-height:20px; margin-top:12px; }
+  .badge-preview { width:100%; max-width:320px; border:1px solid #f0b90b; border-radius:12px; display:block; margin:12px auto; }
+  a { color:#f0b90b; }
+  ul { padding-left:20px; } li { margin:6px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Agent ID Badge</h1>
+  <p class="sub">A free soulbound badge for Binance Agent ID (.ai) holders. One per holder, non-transferable, no monetary value.</p>
+
+  <div class="card">
+    <h2>Your badge</h2>
+    <div id="deploy-note"></div>
+    <img id="badge-img" class="badge-preview" alt="Agent ID Badge preview" style="display:none">
+    <p>Total minted: <b id="minted">…</b></p>
+    <p class="muted">Contract: <span class="mono" id="contract">…</span><br>
+    <span id="bscscan-link"></span></p>
+    <button id="connectBtn">Connect wallet</button>
+    <button id="mintBtn" disabled>Mint my free badge</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>How it works</h2>
+    <ul>
+      <li>Connect your wallet (Binance Wallet, MetaMask, or any injected wallet). <b>No QR pairing, no login stored anywhere.</b></li>
+      <li>The contract checks on-chain that your address holds a Binance Agent ID (<span class="mono">balanceOf &gt; 0</span>).</li>
+      <li>Press Mint. The badge itself is free (value 0) — you only pay your own network gas (a few cents at most on BSC).</li>
+      <li>One badge per address. The badge is soulbound: it cannot be transferred or sold.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Please note</h2>
+    <ul>
+      <li>This badge has <b>no monetary value</b> and promises <b>no returns, rewards, or airdrops</b>.</li>
+      <li>The contract is open-source and verified on BscScan. It has <b>no owner and no admin functions</b> — nobody can mint for you, pause it, or take your badge.</li>
+      <li>Built for the Binance Agent ID Hackathon. This is an independent community project, not affiliated with or endorsed by Binance.</li>
+      <li>Never share your seed phrase or private key with any website. This site never asks for them.</li>
+    </ul>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script>
+let cfg = null, provider = null, signer = null, contract = null;
+const BADGE_ABI = [
+  "function mint() external",
+  "function totalSupply() view returns (uint256)",
+  "function hasMinted(address) view returns (bool)",
+  "function balanceOf(address) view returns (uint256)",
+  "function tokenURI(uint256) view returns (string)",
+  "function ownerOf(uint256) view returns (address)"
+];
+const AGENT_ID_ABI = ["function balanceOf(address) view returns (uint256)"];
+const $ = id => document.getElementById(id);
+const setStatus = (msg, cls) => { const el = $("status"); el.textContent = msg; el.className = cls || ""; };
+
+async function loadConfig() {
+  cfg = await (await fetch("config.json")).json();
+  $("contract").textContent = cfg.contractAddress;
+  if (cfg.contractAddress === "0x0000000000000000000000000000000000000000") {
+    $("deploy-note").innerHTML = '<p class="warn"><b>Contract not deployed yet.</b> Minting opens as soon as the contract is live on BNB Chain.</p>';
+    $("connectBtn").disabled = true;
+    return false;
+  }
+  $("bscscan-link").innerHTML = '<a href="' + cfg.bscscanBase + '/address/' + cfg.contractAddress + '" target="_blank" rel="noopener">View contract on BscScan</a>';
+  return true;
+}
+
+async function refreshStats() {
+  try {
+    const rpc = new ethers.JsonRpcProvider(cfg.rpcUrl);
+    const c = new ethers.Contract(cfg.contractAddress, BADGE_ABI, rpc);
+    const total = await c.totalSupply();
+    $("minted").textContent = total.toString();
+    if (total > 0n) {
+      const uri = await c.tokenURI(1);
+      const json = JSON.parse(atob(uri.split(",")[1]));
+      $("badge-img").src = json.image;
+      $("badge-img").style.display = "block";
+    }
+  } catch (e) { $("minted").textContent = "unavailable"; }
+}
+
+$("connectBtn").addEventListener("click", async () => {
+  try {
+    if (!window.ethereum) { setStatus("No injected wallet found. Open this page in Binance Wallet or MetaMask.", "err"); return; }
+    provider = new ethers.BrowserProvider(window.ethereum);
+    const accounts = await provider.send("eth_requestAccounts", []);
+    const net = await provider.getNetwork();
+    if (Number(net.chainId) !== cfg.chainId) {
+      setStatus("Wrong network. Please switch your wallet to BNB Smart Chain (chain ID 56).", "err");
+      return;
+    }
+    signer = await provider.getSigner();
+    const addr = await signer.getAddress();
+    setStatus("Connected: " + addr, "ok");
+    contract = new ethers.Contract(cfg.contractAddress, BADGE_ABI, signer);
+    // Check Agent ID + already minted
+    const rpc = new ethers.JsonRpcProvider(cfg.rpcUrl);
+    const aid = new ethers.Contract(cfg.agentIdContract, AGENT_ID_ABI, rpc);
+    const [aidBal, minted] = await Promise.all([aid.balanceOf(addr), contract.hasMinted(addr)]);
+    if (aidBal === 0n) { setStatus("This address does not hold a Binance Agent ID, so it cannot mint.", "err"); return; }
+    if (minted) { setStatus("You already minted your badge.", "ok"); return; }
+    $("mintBtn").disabled = false;
+    setStatus("Agent ID confirmed. You can mint your free badge.", "ok");
+  } catch (e) { setStatus("Connect failed: " + (e.reason || e.message || e), "err"); }
+});
+
+$("mintBtn").addEventListener("click", async () => {
+  try {
+    $("mintBtn").disabled = true;
+    setStatus("Sending mint transaction — please confirm in your wallet (value 0, you only pay gas)…");
+    const tx = await contract.mint();
+    setStatus("Transaction sent: " + tx.hash + " — waiting for confirmation…");
+    const receipt = await tx.wait();
+    if (receipt.status === 1) {
+      setStatus("Minted! Your Agent ID Badge is now in your wallet.", "ok");
+      $("mintBtn").disabled = true;
+      refreshStats();
+    } else {
+      setStatus("Transaction failed on-chain.", "err");
+      $("mintBtn").disabled = false;
+    }
+  } catch (e) { setStatus("Mint failed: " + (e.reason || e.message || e), "err"); $("mintBtn").disabled = false; }
+});
+
+loadConfig().then(ok => { if (ok) refreshStats(); });
+</script>
+</body>
+</html>

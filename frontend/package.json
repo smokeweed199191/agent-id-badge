@@ -1,0 +1,1 @@
+{"description":"Frontend for the Agent ID Badge free minter (Binance Agent ID Hackathon)","license":"MIT","main":"server.cjs","name":"agent-id-badge-frontend","scripts":{"start":"node server.cjs"},"version":"1.0.0"}
